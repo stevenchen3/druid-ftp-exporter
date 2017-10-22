@@ -76,7 +76,8 @@ case class DestinationConfig(
   user:      String,
   password:  String,
   directory: String = ".",
-  overwrite: Boolean = true
+  overwrite: Boolean = true,
+  interval:  Int = 60
 ) {
   def ftpSettings = FtpSettings (
     host        = InetAddress.getByName(host),
@@ -110,7 +111,7 @@ case class DruidConfig(host: String, port: Int) {
 
 object RawDataExporter {
 
-  def prepareQuery(config: QueryConfig, interval: Int = 1): Seq[ScanQuery] = {
+  def prepareQuery(config: QueryConfig, interval: Int = 60): Seq[ScanQuery] = {
     import DateTimeHelper._
 
     def mkScanQuery(intervals: Seq[String]): ScanQuery =
@@ -127,7 +128,7 @@ object RawDataExporter {
 
       interval > 0 match {
         case true ⇒
-          val next = start.plusHours(interval)
+          val next = start.plusMinutes(interval)
           end.isAfter(next) match {
             case true ⇒
               val intervals = List(s"${f(start)}/${f(next)}")
@@ -282,7 +283,7 @@ object RawDataExporter {
         c.config match {
           case "" ⇒
             val dest = DestinationConfig(
-              c.ftpHost, c.ftpUser, c.ftpPasswd, c.directory, c.overwrite
+              c.ftpHost, c.ftpUser, c.ftpPasswd, c.directory, c.overwrite, c.interval
             )
             c.query match {
               case "" ⇒
@@ -304,7 +305,7 @@ object RawDataExporter {
     }
 
     def queryByArguments(url: String, src: QueryConfig, dest: DestinationConfig, buff: Int)  = {
-      val queries = prepareQuery(config = src)
+      val queries = prepareQuery(src, dest.interval)
       timer {
         queries foreach { x ⇒
           export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
@@ -320,7 +321,7 @@ object RawDataExporter {
        }
        query
       }
-       val queries = prepareQuery(config = parseConfig(path))
+       val queries = prepareQuery(parseConfig(path))
        timer {
          queries foreach { x ⇒
            export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
@@ -341,7 +342,7 @@ object RawDataExporter {
 
       val config: DataExportConfig = parseConfig(path)
       val dest: DestinationConfig  = config.destination
-      val queries = prepareQuery(config = config.source)
+      val queries = prepareQuery(config.source, dest.interval)
       timer {
         queries foreach { x ⇒
           export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)

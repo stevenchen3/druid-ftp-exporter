@@ -12,6 +12,7 @@ case class Config(
   endTime:    String = "2017-01-01T01:00:00Z",
   filters:    Seq[(String, String)] = List[(String, String)](),
   columns:    Seq[String] = List[String](),
+  interval:   Int = 60,
   ftpHost:    String = "localhost",
   ftpUser:    String = "username",
   ftpPasswd:  String = "password",
@@ -51,6 +52,11 @@ object CommandParser {
           c.copy(filters = x) ).text("Filtering option, e.g., system=foo, default: no filter")
       opt[Seq[String]]('c', "columns").valueName("<column1>,<column2>...").action( (x,c) ⇒
           c.copy(columns = x) ).text("Columns (i.e., dimensions) to export, default: all columns")
+      opt[Int]('i', "interval").action( (x, c) ⇒ c.copy(interval = x) )
+        .validate { x ⇒
+          if (x > 0) success
+          else failure("Option --interval must be > 0")
+        }.text("The interval (minutes) used to split results into multiple files, default: 60")
       opt[String]('H', "host").action( (x, c) ⇒ c.copy(ftpHost = x) )
         .text("FTP server hostname or IP address, default: 'localhost'")
       opt[String]('U', "user").action( (x, c) ⇒ c.copy(ftpUser = x) )
