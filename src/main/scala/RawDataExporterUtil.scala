@@ -54,8 +54,8 @@ object CommandParser {
           c.copy(columns = x) ).text("Columns (i.e., dimensions) to export, default: all columns")
       opt[Int]('i', "interval").action( (x, c) ⇒ c.copy(interval = x) )
         .validate { x ⇒
-          if (x > 0) success
-          else failure("Option --interval must be > 0")
+          if (x >= 0) success
+          else failure("Option --interval must be >= 0")
         }.text("The interval (minutes) used to split results into multiple files, default: 60")
       opt[String]('H', "host").action( (x, c) ⇒ c.copy(ftpHost = x) )
         .text("FTP server hostname or IP address, default: 'localhost'")

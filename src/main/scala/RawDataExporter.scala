@@ -73,7 +73,7 @@ case class SourceConfig(
 
 case class DestinationConfig(
   host:      String,
-  user:      String,
+  username:  String,
   password:  String,
   directory: String = ".",
   overwrite: Boolean = true,
@@ -81,7 +81,7 @@ case class DestinationConfig(
 ) {
   def ftpSettings = FtpSettings (
     host        = InetAddress.getByName(host),
-    credentials = new NonAnonFtpCredentials(user, password),
+    credentials = new NonAnonFtpCredentials(username, password),
     binary      = true,
     passiveMode = false
   )
@@ -321,7 +321,7 @@ object RawDataExporter {
        }
        query
       }
-       val queries = prepareQuery(parseConfig(path))
+       val queries = prepareQuery(parseConfig(path), dest.interval)
        timer {
          queries foreach { x ⇒
            export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
