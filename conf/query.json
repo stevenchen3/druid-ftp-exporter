@@ -1,0 +1,10 @@
+{
+   "queryType": "scan",
+   "dataSource": "foo",
+   "resultFormat": "compactedList",
+   "columns":[],
+   "intervals": [
+     "2016-11-10T10:00:00Z/2016-11-10T11:00:00Z"
+   ],
+   "batchSize":256
+}

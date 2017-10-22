@@ -1,0 +1,60 @@
+#
+# This is an example configuration file in YAML format. Lines starts with '#' are comments.
+# Refer to http://www.yaml.org for detailed specification.
+#
+# All attributes are required unless specified as 'Optional'.
+#
+#
+source:
+  # The data source name (case-sensitive). Refer to detailed user guide regarding how to
+  # retrieve the actual value of data source name.
+  dataSource: 'foo'
+
+  # ISO-8601 timestamp in UTC (i.e., yyyy-MM-ddTHH:mmZ), e.g., '1970-01-01T00:00Z'
+  # Make sure that 'startTime' is before 'endTime'.
+  startTime: '2016-11-10T10:00:00Z'
+  endTime:   '2016-11-10T11:00:00Z'
+
+  # Optional
+  #
+  # In the format of '<key>': [a list of values], e.g., 'system': ['foo', 'bar']
+  # The key name refers to the actual value (not display name) of a particular
+  # dimension ofa data cube. Refer to detailed user guide regarding to how to
+  # retrieve the values of dimensions.
+  #
+  # For a particular filter, results match any of the values in the list for that
+  # specific key would be returned. If multiple filters specified, only results match
+  # all of them would be returned.
+  filters:
+    '<key1>': ['value1', 'value2']
+    '<key2>': ['value1', 'value2']
+
+  # Optional
+  #
+  # Columns to export, set to empty ([]) to export all columns
+  columns: []
+
+  # Batch size
+  batchSize: 256
+
+destination:
+  # The hostname or IP address of the FTP server
+  host: 'localhost'
+
+  # FTP username
+  username: 'username'
+
+  # Required by 'ftp' protocol only
+  # FTP server login password
+  password: 'password'
+
+  # The prefix for exported file names. If it contains path of sub-directories (e.g.,
+  # 'path/to/dir/example-'), those directories must exist beforehand.
+  directory: 'example'
+
+  # Set to true to overwrite existing file if any
+  overwrite: true
+
+  # Split results into multiple files by below interval (minutes)
+  # Set to 0 to disable splitting results into multiple files
+  interval: 60
