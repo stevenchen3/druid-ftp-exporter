@@ -1,4 +1,4 @@
-package example
+package io.alphash
 
 import akka.actor.ActorSystem
 import akka.stream.{ActorMaterializer, IOResult}
@@ -23,7 +23,7 @@ import scalaj.http._
 
 import streamz.converter._
 
-import _root_.io.circe.{HCursor, Json, Printer}
+import _root_.io.circe.{Json, Printer}
 import _root_.io.circe.fs2.{decoder, stringArrayParser}
 import _root_.io.circe.generic.auto._
 import _root_.io.circe.parser._
@@ -38,7 +38,10 @@ sealed trait QueryConfig {
   def columns: Seq[String]
 }
 
-case class DataSourceSeting (
+case class Field(dimension: String, values: Seq[String], `type`: String = "in")
+case class Filter(fields: Seq[Field], `type`: String = "and")
+
+case class QuerySourceConfig (
   dataSource: String,
   startTime: String,
   endTime: String,
@@ -56,16 +59,12 @@ case class SourceConfig(
   columns: Seq[String] = List()
 ) extends QueryConfig {
   def filter: Option[Filter] = {
-    val fields = filters match {
+    val filter: Option[Filter] = filters match {
       case Some(x) ⇒
         val xs = x.asObject.get.keys.map { key ⇒
           Field(key, x.hcursor.get[List[String]](key).right.get)
         }
-        Some(xs)
-      case _ ⇒ None
-    }
-    val filter: Option[Filter] = fields match {
-      case Some(f) ⇒ Some(Filter(f.toList))
+        Some(Filter(xs.toList))
       case _ ⇒ None
     }
     filter
@@ -76,10 +75,10 @@ case class DestinationConfig(
   host:      String,
   user:      String,
   password:  String,
-  directory: String = "",
+  directory: String = ".",
   overwrite: Boolean = true
 ) {
-  def toFtpSettings = FtpSettings (
+  def ftpSettings = FtpSettings (
     host        = InetAddress.getByName(host),
     credentials = new NonAnonFtpCredentials(user, password),
     binary      = true,
@@ -88,8 +87,6 @@ case class DestinationConfig(
 }
 
 case class DataExportConfig(source: SourceConfig, destination: DestinationConfig)
-case class Field(dimension: String, values: Seq[String], `type`: String = "in")
-case class Filter(fields: Seq[Field], `type`: String = "and")
 
 case class ScanQuery(
   dataSource:   String,
@@ -111,36 +108,37 @@ case class DruidConfig(host: String, port: Int) {
   def url = s"http://${host}:${port}/druid/v2"
 }
 
-object HttpToFtpStream {
+object RawDataExporter {
 
-  def toScanQueries(config: QueryConfig, interval: Int = 1): Seq[ScanQuery] = {
+  def prepareQuery(config: QueryConfig, interval: Int = 1): Seq[ScanQuery] = {
     import DateTimeHelper._
 
-    def mkQuery(intervals: Seq[String]): ScanQuery =
+    def mkScanQuery(intervals: Seq[String]): ScanQuery =
       ScanQuery(config.dataSource, intervals, filter = config.filter, columns = config.columns)
 
     @tailrec
     def generate(start: DateTime, end: DateTime, acc: Seq[ScanQuery]): Seq[ScanQuery] = {
+      def f: DateTime ⇒ String = toISO8601String
+
       end.isAfter(start) || end.isEqual(start) match {
         case false ⇒ throw new Exception(s"End time ${f(end)} is behind start time ${f(start)}")
         case _ ⇒ // do nothing
       }
 
-      def f: DateTime ⇒ String = toISO8601String
       interval > 0 match {
         case true ⇒
           val next = start.plusHours(interval)
           end.isAfter(next) match {
             case true ⇒
               val intervals = List(s"${f(start)}/${f(next)}")
-              generate(next, end, acc ++ List(mkQuery(intervals)))
+              generate(next, end, acc ++ List(mkScanQuery(intervals)))
             case _ ⇒
               val intervals = List(s"${f(start)}/${f(end)}")
-              acc ++ List(mkQuery(intervals))
+              acc ++ List(mkScanQuery(intervals))
           }
         case _ ⇒
           val intervals = List(s"${f(start)}/${f(end)}")
-          acc ++ List(mkQuery(intervals))
+          acc ++ List(mkScanQuery(intervals))
       }
     }
 
@@ -150,34 +148,12 @@ object HttpToFtpStream {
   }
 
   def getRemoteDirectory(query: ScanQuery, basedir: String = "."): String = {
-    import DateTimeHelper._
+    import DateTimeHelper.formatter
     val start  = query.intervals.mkString.split("/")(0)
     val subdir = formatter.parseDateTime(start).toYearMonthDay.toString
     s"${basedir}/${query.dataSource}/${subdir}"
   }
 
-  def createRemoteDirectories(settings: FtpSettings, path: String): Unit = {
-    val client = new FTPClient
-    try {
-      client.connect(settings.host.getHostAddress)
-      client.login(settings.credentials.username, settings.credentials.password)
-      path.split("/").map { dir ⇒
-        client.changeWorkingDirectory(dir) match {
-          case true ⇒ // directory exists, do nothing
-          case _    ⇒
-            client.makeDirectory(dir) match {
-              case true ⇒ client.changeWorkingDirectory(dir)
-              case _ ⇒ throw new Exception(s"Failed to create directory '${dir}'")
-            }
-        }
-      }
-    } catch {
-      case e: Exception ⇒ e.printStackTrace
-    } finally {
-      client.logout
-      client.disconnect
-    }
-  }
 
   def getFilename(query: ScanQuery): String =
     s"${query.dataSource}_${query.intervals.mkString.replaceAll("/", "_")}.csv"
@@ -240,22 +216,45 @@ object HttpToFtpStream {
     println(s"Exported ${stat.rows} rows, total ${stat.bytes} bytes")
   }
 
+  def makeDirectories(settings: FtpSettings, path: String): Unit = {
+    val client = new FTPClient
+    try {
+      client.connect(settings.host.getHostAddress)
+      client.login(settings.credentials.username, settings.credentials.password)
+      path.split("/").map { dir ⇒
+        client.changeWorkingDirectory(dir) match {
+          case true ⇒ // directory exists, do nothing
+          case _    ⇒
+            client.makeDirectory(dir) match {
+              case true ⇒ client.changeWorkingDirectory(dir)
+              case _ ⇒ throw new Exception(s"Failed to create directory '${dir}'")
+            }
+        }
+      }
+    } catch {
+      case e: Exception ⇒ e.printStackTrace
+    } finally {
+      client.logout
+      client.disconnect
+    }
+  }
+
   def export(
     url: String,
     query: ScanQuery,
     settings: FtpSettings,
     basedir: String = ".",
-    append: Boolean = false,
+    overwrite: Boolean = true,
     bufferSize: Int = 4194304
   ): Unit = {
     println(s"\nStart exporting '${query.dataSource}' of '${query.intervals.mkString}' to FTP...")
     val remoteBaseDir = getRemoteDirectory(query, basedir)
-    createRemoteDirectories(settings, remoteBaseDir)
+    makeDirectories(settings, remoteBaseDir)
     val dst = s"${remoteBaseDir}/${getFilename(query)}"
     val requestBody = query.asJson.pretty(Printer(true, true, ""))
     Http(url).postData(requestBody)
       .header("Content-Type", "application/json")
-      .execute(x ⇒ streamToFtp(x, settings, dst, isAppended = append, bufferSize = bufferSize))
+      .execute(x ⇒ streamToFtp(x, settings, dst, isAppended = !overwrite, bufferSize = bufferSize))
     println(s"End of exporting '${query.dataSource}' of '${query.intervals.mkString}' to FTP...")
   }
 
@@ -288,7 +287,7 @@ object HttpToFtpStream {
             c.query match {
               case "" ⇒
                 val filter = parseFilters(c.filters)
-                val src = DataSourceSeting (
+                val src = QuerySourceConfig (
                   dataSource = c.dataSource,
                   startTime = c.startTime,
                   endTime = c.endTime,
@@ -296,24 +295,24 @@ object HttpToFtpStream {
                   batchSize = c.batchSize,
                   columns = c.columns.toList
                 )
-                byArguments(dconf.url, src, dest, c.buffer)
-              case _  ⇒ byQueryInput(dconf.url, c.query, dest, c.buffer)
+                queryByArguments(dconf.url, src, dest, c.buffer)
+              case _  ⇒ queryByJsonRequest(dconf.url, c.query, dest, c.buffer)
             }
-          case _ ⇒ byConfiguration(dconf.url, c.config, c.buffer)
+          case _ ⇒ queryByConfiguration(dconf.url, c.config, c.buffer)
         }
       case None ⇒ System.exit(1)
     }
 
-    def byArguments(url: String, src: QueryConfig, dest: DestinationConfig, buff: Int): Unit = {
-      val queries = toScanQueries(config = src)
+    def queryByArguments(url: String, src: QueryConfig, dest: DestinationConfig, buff: Int)  = {
+      val queries = prepareQuery(config = src)
       timer {
         queries foreach { x ⇒
-          export(url, x, dest.toFtpSettings, dest.directory, !dest.overwrite, buff)
+          export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
         }
       }
     }
 
-    def byQueryInput(url:  String, path: String, dest: DestinationConfig, buff: Int): Unit = {
+    def queryByJsonRequest(url:  String, path: String, dest: DestinationConfig, buff: Int): Unit = {
       def parseConfig(path: String): ScanQuery = {
        val query = decode[ScanQuery](fromFile(path).mkString) match {
          case Right(x) ⇒ x
@@ -321,15 +320,15 @@ object HttpToFtpStream {
        }
        query
       }
-       val queries = toScanQueries(config = parseConfig(path))
+       val queries = prepareQuery(config = parseConfig(path))
        timer {
          queries foreach { x ⇒
-           export(url, x, dest.toFtpSettings, dest.directory, !dest.overwrite, buff)
+           export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
          }
        }
     }
 
-    def byConfiguration(url: String, path: String, buff: Int): Unit = {
+    def queryByConfiguration(url: String, path: String, buff: Int): Unit = {
       def parseConfig(path: String): DataExportConfig = {
         import _root_.io.circe.yaml.parser
         val json   = parser.parse(fromFile(path).mkString).right.get
@@ -342,10 +341,10 @@ object HttpToFtpStream {
 
       val config: DataExportConfig = parseConfig(path)
       val dest: DestinationConfig  = config.destination
-      val queries = toScanQueries(config = config.source)
+      val queries = prepareQuery(config = config.source)
       timer {
         queries foreach { x ⇒
-          export(url, x, dest.toFtpSettings, dest.directory, !dest.overwrite, buff)
+          export(url, x, dest.ftpSettings, dest.directory, dest.overwrite, buff)
         }
       }
     }

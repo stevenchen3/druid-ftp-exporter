@@ -1,4 +1,4 @@
-package example
+package io.alphash
 
 import org.joda.time.{DateTime, DateTimeZone}
 import org.joda.time.format.{DateTimeFormatter, ISODateTimeFormat}
