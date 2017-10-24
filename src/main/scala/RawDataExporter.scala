@@ -129,13 +129,13 @@ object RawDataExporter {
   def prepareQuery(config: QueryConfig, interval: Int = 60): Seq[ScanQuery] = {
     import DateTimeHelper.{formatter, toISO8601String ⇒ toISO}
 
-    def mkScanQuery(intervals: Seq[String]): ScanQuery =
+    def mkQuery(intervals: Seq[String]): ScanQuery =
       ScanQuery(
         dataSource = config.dataSource,
-        intervals = intervals,
-        filter = config.filter,
-        columns = config.columns,
-        context = config.context
+        intervals  = intervals,
+        filter     = config.filter,
+        columns    = config.columns,
+        context    = config.context
       )
 
     @tailrec
@@ -146,20 +146,20 @@ object RawDataExporter {
         case _ ⇒ // do nothing
       }
 
-      interval > 0 match {
-        case true ⇒
+      interval == 0 match {
+        case true ⇒ // do not split big query into multiple queries
+          val intervals = List(s"${toISO(start)}/${toISO(end)}")
+          acc ++ List(mkQuery(intervals))
+        case _ ⇒
           val next = start.plusMinutes(interval)
           end.isAfter(next) match {
             case true ⇒
               val intervals = List(s"${toISO(start)}/${toISO(next)}")
-              generate(next, end, acc ++ List(mkScanQuery(intervals)))
+              generate(next, end, acc ++ List(mkQuery(intervals)))
             case _ ⇒
               val intervals = List(s"${toISO(start)}/${toISO(end)}")
-              acc ++ List(mkScanQuery(intervals))
+              acc ++ List(mkQuery(intervals))
           }
-        case _ ⇒
-          val intervals = List(s"${toISO(start)}/${toISO(end)}")
-          acc ++ List(mkScanQuery(intervals))
       }
     }
 
