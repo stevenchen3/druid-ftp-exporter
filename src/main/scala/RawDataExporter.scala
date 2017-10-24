@@ -112,17 +112,16 @@ case class DruidConfig(host: String, port: Int) {
 object RawDataExporter {
 
   def prepareQuery(config: QueryConfig, interval: Int = 60): Seq[ScanQuery] = {
-    import DateTimeHelper._
+    import DateTimeHelper.{formatter, toISO8601String ⇒ toISO}
 
     def mkScanQuery(intervals: Seq[String]): ScanQuery =
       ScanQuery(config.dataSource, intervals, filter = config.filter, columns = config.columns)
 
     @tailrec
     def generate(start: DateTime, end: DateTime, acc: Seq[ScanQuery]): Seq[ScanQuery] = {
-      def f: DateTime ⇒ String = toISO8601String
-
       end.isAfter(start) || end.isEqual(start) match {
-        case false ⇒ throw new Exception(s"End time ${f(end)} is behind start time ${f(start)}")
+        case false ⇒
+          throw new Exception(s"End time ${toISO(end)} is behind start time ${toISO(start)}")
         case _ ⇒ // do nothing
       }
 
@@ -131,14 +130,14 @@ object RawDataExporter {
           val next = start.plusMinutes(interval)
           end.isAfter(next) match {
             case true ⇒
-              val intervals = List(s"${f(start)}/${f(next)}")
+              val intervals = List(s"${toISO(start)}/${toISO(next)}")
               generate(next, end, acc ++ List(mkScanQuery(intervals)))
             case _ ⇒
-              val intervals = List(s"${f(start)}/${f(end)}")
+              val intervals = List(s"${toISO(start)}/${toISO(end)}")
               acc ++ List(mkScanQuery(intervals))
           }
         case _ ⇒
-          val intervals = List(s"${f(start)}/${f(end)}")
+          val intervals = List(s"${toISO(start)}/${toISO(end)}")
           acc ++ List(mkScanQuery(intervals))
       }
     }
@@ -151,7 +150,7 @@ object RawDataExporter {
   def getRemoteDirectory(query: ScanQuery, basedir: String = "."): String = {
     import DateTimeHelper.formatter
     val start  = query.intervals.mkString.split("/")(0)
-    val subdir = formatter.parseDateTime(start).toYearMonthDay.toString
+    val subdir = formatter.parseDateTime(start).toLocalDate.toString
     s"${basedir}/${query.dataSource}/${subdir}"
   }
 
@@ -212,7 +211,7 @@ object RawDataExporter {
     } catch {
       case e: Exception ⇒ e.printStackTrace()
     } finally {
-      system.shutdown
+      system.terminate()
     }
     println(s"Exported ${stat.rows} rows, total ${stat.bytes} bytes")
   }
