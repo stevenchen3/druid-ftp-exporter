@@ -13,6 +13,7 @@ case class Config(
   filters:    Seq[(String, String)] = List[(String, String)](),
   columns:    Seq[String] = List[String](),
   interval:   Int = 60,
+  timeout:    Long = 900000,
   ftpHost:    String = "localhost",
   ftpUser:    String = "username",
   ftpPasswd:  String = "password",
@@ -57,6 +58,11 @@ object CommandParser {
           if (x >= 0) success
           else failure("Option --interval must be >= 0")
         }.text("The interval (minutes) used to split results into multiple files, default: 60")
+      opt[Long]('t', "timeout").action( (x, c) ⇒ c.copy(timeout = x) )
+        .validate { x ⇒
+          if (x >= 0) success
+          else failure("Option --timeout must be >= 0")
+        }.text("The timeout (in milliseconds) of exporting raw data, default: 900000")
       opt[String]('H', "host").action( (x, c) ⇒ c.copy(ftpHost = x) )
         .text("FTP server hostname or IP address, default: 'localhost'")
       opt[String]('U', "user").action( (x, c) ⇒ c.copy(ftpUser = x) )

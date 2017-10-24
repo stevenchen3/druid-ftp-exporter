@@ -36,6 +36,7 @@ sealed trait QueryConfig {
   def filter: Option[Filter]
   def batchSize: Int
   def columns: Seq[String]
+  def context: Option[QueryContext]
 }
 
 case class Field(dimension: String, values: Seq[String], `type`: String = "in")
@@ -47,8 +48,14 @@ case class QuerySourceConfig (
   endTime: String,
   filter: Option[Filter],
   batchSize: Int = 256,
-  columns: Seq[String] = List()
-) extends QueryConfig
+  columns: Seq[String] = List(),
+  timeout: Option[Long] = Some(900000)
+) extends QueryConfig {
+  def context: Option[QueryContext] = timeout match {
+    case Some(x) ⇒ Some(QueryContext(timeout = x))
+    case _ ⇒ None
+  }
+}
 
 case class SourceConfig(
   dataSource: String,
@@ -56,7 +63,8 @@ case class SourceConfig(
   endTime: String,
   filters: Option[Json],
   batchSize: Int = 256,
-  columns: Seq[String] = List()
+  columns: Seq[String] = List(),
+  timeout: Option[Long] = Some(900000)
 ) extends QueryConfig {
   def filter: Option[Filter] = {
     val filter: Option[Filter] = filters match {
@@ -68,6 +76,11 @@ case class SourceConfig(
       case _ ⇒ None
     }
     filter
+  }
+
+  def context: Option[QueryContext] = timeout match {
+    case Some(x) ⇒ Some(QueryContext(timeout = x))
+    case _ ⇒ None
   }
 }
 
@@ -89,6 +102,7 @@ case class DestinationConfig(
 
 case class DataExportConfig(source: SourceConfig, destination: DestinationConfig)
 
+case class QueryContext(timeout: Long)
 case class ScanQuery(
   dataSource:   String,
   intervals:    Seq[String],
@@ -96,7 +110,8 @@ case class ScanQuery(
   resultFormat: String = "compactedList",
   columns:      Seq[String] = List(),
   batchSize:    Int = 256,
-  filter:       Option[Filter] = None
+  filter:       Option[Filter] = None,
+  context:      Option[QueryContext] = None
 ) extends QueryConfig {
   def startTime = intervals.take(1).mkString.split("/")(0)
   def endTime = intervals.take(1).mkString.split("/")(1)
@@ -115,7 +130,13 @@ object RawDataExporter {
     import DateTimeHelper.{formatter, toISO8601String ⇒ toISO}
 
     def mkScanQuery(intervals: Seq[String]): ScanQuery =
-      ScanQuery(config.dataSource, intervals, filter = config.filter, columns = config.columns)
+      ScanQuery(
+        dataSource = config.dataSource,
+        intervals = intervals,
+        filter = config.filter,
+        columns = config.columns,
+        context = config.context
+      )
 
     @tailrec
     def generate(start: DateTime, end: DateTime, acc: Seq[ScanQuery]): Seq[ScanQuery] = {
@@ -248,6 +269,7 @@ object RawDataExporter {
     bufferSize: Int = 4194304
   ): Unit = {
     println(s"\nStart exporting '${query.dataSource}' of '${query.intervals.mkString}' to FTP...")
+    //println(s"Query: ${query.asJson.pretty(Printer(true, true, ""))}")
     val remoteBaseDir = getRemoteDirectory(query, basedir)
     makeDirectories(settings, remoteBaseDir)
     val dst = s"${remoteBaseDir}/${getFilename(query)}"
@@ -266,12 +288,12 @@ object RawDataExporter {
     result
   }
 
-  def parseFilters(s: Seq[(String, String)]): Filter = {
+  def parseFilters(s: Seq[(String, String)]): Option[Filter] = {
     val m: Map[String, Seq[String]] = s.groupBy(_._1).mapValues(_.map(_._2))
     val fields = for {
       (k, v) <- m
     } yield Field(k, v.toList)
-    Filter(fields.toList)
+    if (fields.isEmpty) None else Some(Filter(fields.toList))
   }
 
   def main(args: Array[String]): Unit = {
@@ -291,9 +313,10 @@ object RawDataExporter {
                   dataSource = c.dataSource,
                   startTime = c.startTime,
                   endTime = c.endTime,
-                  filter = Some(filter),
+                  filter = filter,
                   batchSize = c.batchSize,
-                  columns = c.columns.toList
+                  columns = c.columns.toList,
+                  timeout = Some(c.timeout)
                 )
                 queryByArguments(dconf.url, src, dest, c.buffer)
               case _  ⇒ queryByJsonRequest(dconf.url, c.query, dest, c.buffer)
