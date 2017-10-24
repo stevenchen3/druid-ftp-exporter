@@ -29,6 +29,7 @@ import _root_.io.circe.generic.auto._
 import _root_.io.circe.parser._
 import _root_.io.circe.syntax._
 
+case class QueryContext(timeout: Long)
 sealed trait QueryConfig {
   def dataSource: String
   def startTime: String
@@ -102,7 +103,6 @@ case class DestinationConfig(
 
 case class DataExportConfig(source: SourceConfig, destination: DestinationConfig)
 
-case class QueryContext(timeout: Long)
 case class ScanQuery(
   dataSource:   String,
   intervals:    Seq[String],
@@ -168,16 +168,15 @@ object RawDataExporter {
     generate(start, end, List())
   }
 
-  def getRemoteDirectory(query: ScanQuery, basedir: String = "."): String = {
+  def getRemoteDirectory(query: QueryConfig, basedir: String = "."): String = {
     import DateTimeHelper.formatter
-    val start  = query.intervals.mkString.split("/")(0)
+    val start  = query.startTime
     val subdir = formatter.parseDateTime(start).toLocalDate.toString
     s"${basedir}/${query.dataSource}/${subdir}"
   }
 
-
-  def getFilename(query: ScanQuery): String =
-    s"${query.dataSource}_${query.intervals.mkString.replaceAll("/", "_")}.csv"
+  def getFilename(query: QueryConfig): String =
+    s"${query.dataSource}_${query.startTime}-${query.endTime}.csv"
 
   def toCsv(result: ScanQueryResult, stat: QueryStatistics): String = {
     import _root_.io.circe._
@@ -268,8 +267,8 @@ object RawDataExporter {
     overwrite: Boolean = true,
     bufferSize: Int = 4194304
   ): Unit = {
-    println(s"\nStart exporting '${query.dataSource}' of '${query.intervals.mkString}' to FTP...")
-    //println(s"Query: ${query.asJson.pretty(Printer(true, true, ""))}")
+    val intervals = s"from '${query.startTime}' to '${query.endTime}'"
+    println(s"\nExporting '${query.dataSource}' $intervals to FTP")
     val remoteBaseDir = getRemoteDirectory(query, basedir)
     makeDirectories(settings, remoteBaseDir)
     val dst = s"${remoteBaseDir}/${getFilename(query)}"
@@ -277,7 +276,7 @@ object RawDataExporter {
     Http(url).postData(requestBody)
       .header("Content-Type", "application/json")
       .execute(x ⇒ streamToFtp(x, settings, dst, isAppended = !overwrite, bufferSize = bufferSize))
-    println(s"End of exporting '${query.dataSource}' of '${query.intervals.mkString}' to FTP...")
+    println(s"End of exporting '${query.dataSource}' '${intervals}' to FTP")
   }
 
   def timer[R](block: ⇒ R): R = {
@@ -308,16 +307,7 @@ object RawDataExporter {
             )
             c.query match {
               case "" ⇒
-                val filter = parseFilters(c.filters)
-                val src = QuerySourceConfig (
-                  dataSource = c.dataSource,
-                  startTime = c.startTime,
-                  endTime = c.endTime,
-                  filter = filter,
-                  batchSize = c.batchSize,
-                  columns = c.columns.toList,
-                  timeout = Some(c.timeout)
-                )
+                val src = mkQuerySourceConfig(c)
                 queryByArguments(dconf.url, src, dest, c.buffer)
               case _  ⇒ queryByJsonRequest(dconf.url, c.query, dest, c.buffer)
             }
@@ -325,6 +315,17 @@ object RawDataExporter {
         }
       case None ⇒ System.exit(1)
     }
+
+    def mkQuerySourceConfig(config: Config): QuerySourceConfig =
+      QuerySourceConfig (
+        dataSource = config.dataSource,
+        startTime  = config.startTime,
+        endTime    = config.endTime,
+        filter     = parseFilters(config.filters),
+        batchSize  = config.batchSize,
+        columns    = config.columns.toList,
+        timeout    = Some(config.timeout)
+      )
 
     def queryByArguments(url: String, src: QueryConfig, dest: DestinationConfig, buff: Int)  = {
       val queries = prepareQuery(src, dest.interval)
