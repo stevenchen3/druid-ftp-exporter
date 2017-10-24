@@ -37,6 +37,11 @@ source:
   # Batch size
   batchSize: 256
 
+  # Optional
+  #
+  # Timeout in milliseconds
+  timeout: 900000
+
 destination:
   # The hostname or IP address of the FTP server
   host: 'localhost'
