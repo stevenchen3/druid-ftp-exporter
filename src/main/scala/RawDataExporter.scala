@@ -114,7 +114,7 @@ case class ScanQuery(
   context:      Option[QueryContext] = None
 ) extends QueryConfig {
   def startTime = intervals.take(1).mkString.split("/")(0)
-  def endTime = intervals.take(1).mkString.split("/")(1)
+  def endTime   = intervals.take(1).mkString.split("/")(1)
 }
 
 case class ScanQueryResult(columns: Seq[String], events: Seq[Json])
