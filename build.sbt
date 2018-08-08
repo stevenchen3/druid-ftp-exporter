@@ -1,9 +1,9 @@
 import Dependencies._
 
 lazy val commonSettings = Seq(
-  name := "druid-ftp",
-  version := "0.9",
-  organization := "alphash.io",
+  name         := "druid-ftp-exporter",
+  version      := "0.9.0-SNAPSHOT",
+  organization := "io.alphash",
   scalaVersion := "2.11.8",
   scalacOptions in Compile ++= Seq(
     "-encoding",
@@ -26,18 +26,16 @@ lazy val commonSettings = Seq(
     "-Xlint:unchecked",
     "-Xlint:deprecation"
   ),
-  javaOptions in Test ++= Seq("-Xms1024m", "-Xmx2048m", "-Dconfig.resource=test.conf"),
-  javaOptions in run ++= Seq("-Xms1024m", "-Xmx2048m", "-XX:+UseParallelGC", "-server"),
-  resolvers += Resolver.sonatypeRepo("releases"),
-  javaOptions in Universal := (javaOptions in run).value // propagate `run` settings to packaging scripts
+  javaOptions in Test ++= Seq("-Xms256m", "-Xmx2g", "-Dconfig.resource=test.conf"),
+  javaOptions in run  ++= Seq("-Xms256m", "-Xmx2g", "-XX:+UseParallelGC", "-server"),
+  resolvers += Resolver.sonatypeRepo("releases")
 )
 
-lazy val root = Project(id = "druid-ftp", base = file("."))
-  .enablePlugins(JavaServerAppPackaging, UniversalPlugin)
+lazy val root = Project(id = "druid-ftp-exporter", base = file("."))
   .settings(commonSettings: _*)
-  .settings(fork in run := true)
-  .settings(fork in Test := true)
-  .settings(coverageEnabled := true) // change to `false` when comes to packaging and distribution
+  .settings(fork in run     := true)
+  .settings(fork in Test    := true)
+  .settings(coverageEnabled := true)
   .settings(addCompilerPlugin("org.scalamacros" % "paradise" % "2.1.0" cross CrossVersion.patch))
   .settings(libraryDependencies ++= circeDeps)
   .settings(libraryDependencies ++= scalajDeps)
